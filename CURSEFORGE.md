@@ -47,7 +47,18 @@ First public release.
 - Right-click drag the button row to anywhere on screen
 - Default key blacklist out of the box: W/A/S/D, Space and mouse LMB/RMB stay completely vanilla — re-enable any of them in the K menu
 - Press K for the config menu: master switch, wheel size, sounds, long-press auto-repeat, reset layout
+- Five wheel UI styles — Vanilla, Glass, Brass, Terminal, Twilight — cycled from the K menu or from an optional hotkey (bind "Toggle Wheel UI Style" in Controls)
 - Languages: English / 简体中文 / 繁體中文 / 日本語
+```
+
+### 1.1.0 更新说明模板
+
+```
+## 1.1.0
+- New: two wheel UI styles (Vanilla MC / Translucent) — switch in the K menu, or bind the new "Toggle Wheel UI Style" key (unbound by default)
+- New: sector labels now shrink to fit instead of being cut off with "..."
+- New: 128×128 mod icon
+- Translucent falls back to high contrast while Adjust Mode is open, so the small handles stay readable
 ```
 
 ## 5. 项目介绍正文（Description，切到 Markdown 编辑模式整段粘贴）
@@ -58,8 +69,8 @@ First public release.
 
 ## 6. 上传前检查清单
 
-- [ ] 项目 Logo：建议至少 256×256 方图。jar 里的 icon.png 只有 64×64，
-      可以先用游戏截图代替，或另做一张大图。
+- [ ] 项目 Logo：建议至少 256×256 方图。jar 里的 `icon.png` 已经是 128×128，
+      项目页图标用 `模组图标_上传用/key_conflict_wheel_icon_400.png` 那张即可。
 - [ ] 至少 1 张截图：轮盘弹出时的游戏截图（内/外圈分界线要看得清）。
       最好再来一张"调整位置模式"的截图。
 - [ ] 介绍正文里的 `![](...)` 图片占位符，在 CurseForge 编辑器里直接粘贴/上传图片会自动变成链接。
@@ -108,12 +119,24 @@ Press the **Adjust** button on the wheel to lock it and open editing:
 - Hover a sector for a tooltip with the full name.
 - Confirm to save. The whole button row can also be **right-click dragged** anywhere on screen.
 
+## UI styles
+
+Two looks, switchable in the K menu (or bind **Toggle Wheel UI Style** in Controls — unbound by default):
+
+| Style | Look |
+|---|---|
+| **Vanilla MC** | grey plates with light/dark bevels, closest to the vanilla button look |
+| **Translucent** | thin lines, low opacity, soft darkening behind — barely covers the world |
+
+Translucent switches itself to the high-contrast palette while Adjust Mode is open, so the small move/scale handles and the × stay visible.
+
 ## Config menu
 
 Press **K** in game for the master menu:
 
 - Master on/off switch
 - Wheel size slider
+- UI style switcher
 - Sounds on/off
 - Long-press auto-repeat
 - Reset layout to default
@@ -132,7 +155,8 @@ English / 简体中文 / 繁體中文 / 日本語 — the UI follows your game l
 ## 中文简介
 
 同一条快捷键被多个模组占用时，**按住它**会弹出圆盘：鼠标停在扇区**内圈松开＝短按一次**，停在**外圈松开＝长按**（再按一次同一扇区结束长按），停在**中心＝取消**。
-支持一键拉黑常用键，且出厂就把 W/A/S/D、空格、鼠标左右键默认拉黑——走路挖方块绝不会弹轮盘；想恢复哪个键，在 K 总菜单的拉黑列表里逐个解除或一键清空，也可以一键恢复默认。调整位置模式（拖动/缩放轮盘、拖拽重排扇区、× 取消单个快捷键）、按 K 打开总菜单（总开关／大小／音效／长按连发／复位）。
+支持一键拉黑常用键，且出厂就把 W/A/S/D、空格、鼠标左右键默认拉黑——走路挖方块绝不会弹轮盘；想恢复哪个键，在 K 总菜单的拉黑列表里逐个解除或一键清空，也可以一键恢复默认。调整位置模式（拖动/缩放轮盘、拖拽重排扇区、× 取消单个快捷键）、按 K 打开总菜单（总开关／大小／界面风格／音效／长按连发／复位）。
+**两套界面风格**：原版 MC、半透明，K 菜单里一键切换，也可以在「控制」里给"切换轮盘界面风格"绑一个键。
 纯客户端模组，已针对铁魔法等自带轮盘的模组做底层键盘兼容修复。
 
 ## License

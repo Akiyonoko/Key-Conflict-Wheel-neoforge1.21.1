@@ -1,5 +1,6 @@
 {
   "key.key_conflict_wheel.open_menu": "Open Wheel Master Menu",
+  "key.key_conflict_wheel.toggle_style": "Toggle Wheel UI Style",
   "key.categories.key_conflict_wheel": "Key Conflict Wheel",
 
   "key_conflict_wheel.wheel.title": "Conflict Keybind Wheel",
@@ -9,6 +10,8 @@
   "key_conflict_wheel.wheel.blacklist_btn": "Block key",
   "key_conflict_wheel.wheel.stop_btn": "Stop holds",
   "key_conflict_wheel.wheel.adjust_btn": "Move wheel",
+  "key_conflict_wheel.wheel.style_btn": "Style",
+  "key_conflict_wheel.wheel.tip_style": "Switch the wheel between Vanilla MC and Translucent",
   "key_conflict_wheel.wheel.confirm_btn": "Confirm",
   "key_conflict_wheel.wheel.cancel_btn": "Cancel",
   "key_conflict_wheel.wheel.center_btn": "Re-centre",
@@ -68,6 +71,10 @@
   "key_conflict_wheel.menu.scale.mid": "M",
   "key_conflict_wheel.menu.scale.large": "L",
   "key_conflict_wheel.menu.scale.xlarge": "XL",
+  "key_conflict_wheel.menu.style": "UI style: %s",
+  "key_conflict_wheel.style.vanilla": "Vanilla MC",
+  "key_conflict_wheel.style.glass": "Translucent",
+  "key_conflict_wheel.style.switched": "Wheel UI style: %s",
   "key_conflict_wheel.menu.sound": "Wheel sounds: %s",
   "key_conflict_wheel.menu.repeat": "Hold auto-repeat: %s",
   "key_conflict_wheel.menu.stop_holds": "Stop all holds (%s active)",

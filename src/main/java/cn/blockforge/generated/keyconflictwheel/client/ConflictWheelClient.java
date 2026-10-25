@@ -47,6 +47,13 @@ public final class ConflictWheelClient {
             GLFW.GLFW_KEY_K,
             "key.categories.key_conflict_wheel");
 
+    /** 切换轮盘界面风格（原版 GUI / 淡玻璃 HUD）。默认不绑定，需要的玩家自己去"控制"里设 */
+    public static final KeyMapping STYLE_KEY = new KeyMapping(
+            "key.key_conflict_wheel.toggle_style",
+            InputConstants.Type.KEYSYM,
+            GLFW.GLFW_KEY_UNKNOWN,
+            "key.categories.key_conflict_wheel");
+
     /** 轮盘被 ESC／外部关掉后，等物理键真正抬起才允许再次弹轮盘 */
     private final Set<KeyRef> awaitRelease = new HashSet<>();
     /** 当前物理上"按着"的键（用来判断收尾时是否还需要等待抬起） */
@@ -63,6 +70,7 @@ public final class ConflictWheelClient {
 
     public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
         event.register(MENU_KEY);
+        event.register(STYLE_KEY);
     }
 
     // ---------- 输入事件（HIGHEST：先于其他模组处理按键） ----------
@@ -135,6 +143,12 @@ public final class ConflictWheelClient {
         if (MENU_KEY.consumeClick() && mc.screen == null && mc.level != null && mc.player != null) {
             mc.setScreen(new MasterMenuScreen());
             WheelSounds.openMenu();
+        }
+        // 风格切换：不弹窗，右下角 actionbar 提示一下当前是哪套
+        if (STYLE_KEY.consumeClick() && mc.screen == null && mc.level != null && mc.player != null) {
+            WheelStyle style = WheelConfig.get().cycleStyle();
+            WheelSounds.openMenu();
+            tell("key_conflict_wheel.style.switched", Component.translatable(style.langKey()));
         }
     }
 

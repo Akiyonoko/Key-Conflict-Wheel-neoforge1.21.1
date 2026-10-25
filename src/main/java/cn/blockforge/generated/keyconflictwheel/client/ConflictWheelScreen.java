@@ -79,11 +79,14 @@ public final class ConflictWheelScreen extends Screen {
     private double hudGrabDX, hudGrabDY;    // 按下点相对主按钮中心
 
     // 每帧按屏幕尺寸更新
-    // bxc/byc = 右下角最右主按钮（正常=调整位置，调整=确认位置）；
-    // axc/cyc = 它左边一个（正常=拉黑此键，调整=恢复居中）；sxc/syc = 左下角（正常=结束长按，调整=取消调整）
+    // 右下角那排小按钮，从左到右：调整位置 / 切换界面风格 / 拉黑此键
+    //   bxc/byc = 最右（正常=拉黑此键，调整=确认位置）
+    //   stx     = 中间（正常=切换界面风格，调整=恢复居中）
+    //   axc/cyc = 最左（正常=调整位置）
+    // sxc/syc = 屏幕左下角（正常=结束长按，调整=取消调整）
     // mvx/mvy、scx/scy = 调整模式下轮盘右下角的移动把手／缩放把手
     private float cx, cy, rHole, rSplitA, rSplitB, rOuter, bxc, byc, bs, sxc, syc;
-    private float axc, cyc, mxc, rCross, crossSize;
+    private float axc, cyc, mxc, stx, rCross, crossSize;
     private float mvx, mvy, scx, scy, hb;
 
     public ConflictWheelScreen(KeyRef ref, List<KeyMapping> bindings) {
@@ -139,10 +142,23 @@ public final class ConflictWheelScreen extends Screen {
         float step = twoPi / count;
         float gap = Math.min(0.05f, 3.0f / ((rHole + rOuter) * 0.5f));
 
+        WheelStyle st = style();
+
         // 压暗背景（调整位置时压得轻一点，方便看清游戏画面里的位置）
-        graphics.fill(0, 0, this.width, this.height, adjustMode ? 0x50000000 : 0x70000000);
+        graphics.fill(0, 0, this.width, this.height, adjustMode ? 0x50000000 : st.screenDim);
+
+        // 玻璃风格：用三层同心圆近似一层径向压暗，让细线在天空/雪地这类亮背景上也能看清
+        if (st.veil) {
+            WheelDraw.ringSector(pose, cx, cy, 0, rOuter * 0.55f, 0, twoPi, 0x22000000);
+            WheelDraw.ringSector(pose, cx, cy, rOuter * 0.55f, rOuter * 0.85f, 0, twoPi, 0x14000000);
+            WheelDraw.ringSector(pose, cx, cy, rOuter * 0.85f, rOuter + 2.5f, 0, twoPi, 0x0C000000);
+        }
+
         // 底盘
-        WheelDraw.ringSector(pose, cx, cy, 0, rOuter + 2.5f, 0, twoPi, 0xF00D0D16);
+        WheelDraw.ringSector(pose, cx, cy, 0, rOuter + 2.5f, 0, twoPi, st.backdrop);
+        if ((st.rim >>> 24) != 0) {
+            WheelDraw.ringSector(pose, cx, cy, rOuter + 1.0f, rOuter + 2.5f, 0, twoPi, st.rim);
+        }
 
         // 扇区（内圈=短按带，外圈=长按带）
         for (int i = 0; i < count; i++) {
@@ -150,23 +166,38 @@ public final class ConflictWheelScreen extends Screen {
             float a1 = a0 + step;
             boolean hot = isHot(i);
             boolean holding = ConflictWheelClient.isHeld(bindings.get(i));
-            WheelDraw.ringSector(pose, cx, cy, rHole, rSplitA, a0 + gap, a1 - gap, colorOf(i, hot ? 1.25f : 1.0f, false));
-            // 外圈：正在长按的扇区用琥珀色整块亮起来
-            int longColor = holding
-                    ? (hot ? 0xFFFFC247 : 0xFFE09A28)
-                    : colorOf(i, hot ? 1.15f : 0.62f, true);
-            WheelDraw.ringSector(pose, cx, cy, rSplitB, rOuter, a0 + gap, a1 - gap, longColor);
+            int innerColor = hot ? st.hotInner : (i % 2 == 0 ? st.innerA : st.innerB);
+            int outerColor = holding
+                    ? st.holdOuter
+                    : (hot ? st.hotOuter : (i % 2 == 0 ? st.outerA : st.outerB));
+            WheelDraw.ringSector(pose, cx, cy, rHole, rSplitA, a0 + gap, a1 - gap, innerColor);
+            WheelDraw.ringSector(pose, cx, cy, rSplitB, rOuter, a0 + gap, a1 - gap, outerColor);
+
+            // 原版风格：每个扇区两条边（迎光的那条提亮、背光的那条压暗）做出"凸起"的手感
+            // 用中性白/黑而不是灰，换任何底色（黄铜、苔绿）都不会脏
+            if (st.bevel) {
+                float off = Math.min(0.010f, step * 0.10f);
+                bevelEdge(pose, rHole, rSplitA, a0 + off, 0x46FFFFFF);
+                bevelEdge(pose, rHole, rSplitA, a1 - off, 0x78000000);
+                bevelEdge(pose, rSplitB, rOuter, a0 + off, 0x38FFFFFF);
+                bevelEdge(pose, rSplitB, rOuter, a1 - off, 0x66000000);
+            }
+
             if (holding) {
-                WheelDraw.ringSector(pose, cx, cy, rOuter + 0.5f, rOuter + 3.0f, a0 + gap, a1 - gap, 0xFFFFE08A);
+                WheelDraw.ringSector(pose, cx, cy, rOuter + 0.5f, rOuter + 3.0f, a0 + gap, a1 - gap, st.holdRim);
             }
         }
 
         // 中心孔
-        WheelDraw.ringSector(pose, cx, cy, 0, rHole - 1.5f, 0, twoPi, 0xF80A0A12);
+        WheelDraw.ringSector(pose, cx, cy, 0, rHole - 1.5f, 0, twoPi, st.center);
 
-        // 内/外圈分界环：高亮粗环，防止分不清
-        WheelDraw.ringSector(pose, cx, cy, rSplitA, rSplitB, 0, twoPi,
-                adjustMode ? 0xFF8FE8FF : 0xFFE8E8F0);
+        // 内/外圈分界环：暗槽 + 一根亮线，保证"短按带 / 长按带"一眼能分开
+        if ((st.groove >>> 24) != 0) {
+            WheelDraw.ringSector(pose, cx, cy, rSplitA, rSplitB, 0, twoPi, st.groove);
+        }
+        float midSplit = (rSplitA + rSplitB) * 0.5f;
+        float halfW = Math.max(0.5f, st.splitW * 0.5f);
+        WheelDraw.ringSector(pose, cx, cy, midSplit - halfW, midSplit + halfW, 0, twoPi, st.split);
 
         // 扇区之间的暗色分隔线 + 外圈描边
         for (int i = 0; i < count; i++) {
@@ -175,9 +206,10 @@ public final class ConflictWheelScreen extends Screen {
             WheelDraw.line(pose,
                     cx + cos * (rHole - 1), cy + sin * (rHole - 1),
                     cx + cos * (rOuter + 2), cy + sin * (rOuter + 2),
-                    2.0f, 0xFF08080E);
+                    st.sepW, st.sep);
         }
-        if (!adjustMode && ConflictWheelClient.holdsOn(ref) == 0) {
+
+        if (!adjustMode && ConflictWheelClient.holdsOn(ref) == 0 && (st.rim >>> 24) == 0) {
             WheelDraw.ringSector(pose, cx, cy, rOuter + 2, rOuter + 3.5f, 0, twoPi, 0xFF38384F);
         }
 
@@ -194,8 +226,9 @@ public final class ConflictWheelScreen extends Screen {
             drawCrosses(graphics, base, step);
             drawWheelHandles(graphics);
         } else {
-            drawBlacklistButton(graphics);
             drawAdjustButton(graphics);
+            drawStyleButton(graphics);
+            drawBlacklistButton(graphics);
             drawStopButton(graphics);
         }
         drawHints(graphics);
@@ -233,14 +266,15 @@ public final class ConflictWheelScreen extends Screen {
         this.cy = clampAxis(baseCy + (float) cfg.offsetY, margin + 10.0f, this.height - margin - 22.0f, baseCy);
 
         // 右下角那排小按钮：默认贴屏幕右下角，玩家可以用右键把它们拖到别处
-        //   最右：正常模式=调整位置；调整模式=确认位置
-        //   它左边：正常模式=拉黑此键；调整模式=恢复居中
+        //   从左到右：调整位置 / 切换界面风格 / 拉黑此键
+        //   调整模式下：中间=恢复居中，最右=确认
         float defX = hudDefaultX(), defY = hudDefaultY();
         this.bxc = clampAxis(defX + (float) cfg.hudDX, bs + 2.0f, this.width - bs - 2.0f, defX);
         this.byc = clampAxis(defY + (float) cfg.hudDY, bs + 2.0f, this.height - bs - 2.0f, defY);
-        this.axc = Math.max(this.bxc - bs * 2.5f, bs + 2.0f);
+        this.stx = Math.max(this.bxc - bs * 2.5f, bs + 2.0f);
+        this.axc = Math.max(this.bxc - bs * 5.0f, bs + 2.0f);
         this.cyc = this.byc;
-        this.mxc = this.axc;
+        this.mxc = this.stx;
         // 屏幕左下角：正常模式=结束该键全部长按（仅在确有长按时出现）；调整模式=取消调整
         this.sxc = bs + 2.0f;
         this.syc = defY;
@@ -355,7 +389,8 @@ public final class ConflictWheelScreen extends Screen {
 
         int newZone;
         int newSector = -1;
-        if (inBlacklistButton(mx, my) || inStopButton(mx, my) || inAdjustButton(mx, my)) {
+        if (inBlacklistButton(mx, my) || inStopButton(mx, my) || inAdjustButton(mx, my)
+                || inStyleButton(mx, my)) {
             newZone = ZONE_BUFFER;
         } else if (dist <= rHole) {
             newZone = ZONE_CENTER;
@@ -495,6 +530,12 @@ public final class ConflictWheelScreen extends Screen {
             WheelSounds.blacklist();
             tell("key_conflict_wheel.msg.blacklisted", ref.display());
             this.minecraft.setScreen(null);
+            return true;
+        }
+        if (button == 0 && inStyleButton(mx, my)) {
+            WheelStyle next = WheelConfig.get().cycleStyle();
+            WheelSounds.openMenu();
+            tell("key_conflict_wheel.style.switched", Component.translatable(next.langKey()));
             return true;
         }
         if (button == 0 && inAdjustButton(mx, my)) {
@@ -734,11 +775,15 @@ public final class ConflictWheelScreen extends Screen {
     // ---------- 命中判定 ----------
 
     private boolean inBlacklistButton(double mx, double my) {
-        return !adjustMode && Math.abs(mx - axc) <= bs && Math.abs(my - cyc) <= bs;
+        return !adjustMode && Math.abs(mx - bxc) <= bs && Math.abs(my - byc) <= bs;
     }
 
     private boolean inAdjustButton(double mx, double my) {
-        return !adjustMode && Math.abs(mx - bxc) <= bs && Math.abs(my - byc) <= bs;
+        return !adjustMode && Math.abs(mx - axc) <= bs && Math.abs(my - cyc) <= bs;
+    }
+
+    private boolean inStyleButton(double mx, double my) {
+        return !adjustMode && Math.abs(mx - stx) <= bs && Math.abs(my - byc) <= bs;
     }
 
     private boolean inConfirmButton(double mx, double my) {
@@ -901,17 +946,19 @@ public final class ConflictWheelScreen extends Screen {
     }
 
     private void drawLabels(GuiGraphics graphics, float base, float step) {
+        WheelStyle st = style();
         float labelR = (rHole + rSplitA) * 0.5f;
         float maxW = Math.max(26.0f, step * labelR * 0.94f - 4.0f);
+        // 统一用原字号：宁可截断成 "…" ，也不要把字缩小——
+        // 缩过的小字在游戏里根本看不清，还不如少显示几个字。
         for (int i = 0; i < count; i++) {
             float mid = base + (i + 0.5f) * step;
             int lx = (int) (cx + Math.cos(mid) * labelR);
             int ly = (int) (cy + Math.sin(mid) * labelR);
-            boolean hot = isHot(i);
             String prefix = ConflictWheelClient.isHeld(bindings.get(i)) ? "◆" : "";
             String text = elide(prefix + bindings.get(i).getDisplayName().getString(), maxW);
             graphics.drawCenteredString(this.font, text, lx, ly - this.font.lineHeight / 2,
-                    hot ? 0xFFFFFF : 0xE8E8F0);
+                    isHot(i) ? st.textHot : st.text);
         }
     }
 
@@ -994,6 +1041,9 @@ public final class ConflictWheelScreen extends Screen {
         } else if (inAdjustButton(lastMouseX, lastMouseY)) {
             head = "key_conflict_wheel.wheel.adjust_btn";
             body = "key_conflict_wheel.wheel.tip_adjust";
+        } else if (inStyleButton(lastMouseX, lastMouseY)) {
+            head = "key_conflict_wheel.wheel.style_btn";
+            body = "key_conflict_wheel.wheel.tip_style";
         } else if (inStopButton(lastMouseX, lastMouseY)) {
             head = "key_conflict_wheel.wheel.stop_btn";
             body = "key_conflict_wheel.wheel.tip_stop";
@@ -1079,22 +1129,36 @@ public final class ConflictWheelScreen extends Screen {
 
     private void drawBlacklistButton(GuiGraphics graphics) {
         boolean hover = inBlacklistButton(lastMouseX, lastMouseY);
-        fillButton(graphics, axc, cyc, hover ? 0xFFB33A3A : 0xFF3A3A4A, hover ? 0xFF8C2525 : 0xFF23232E);
+        fillButton(graphics, bxc, byc, hover ? 0xFFB33A3A : 0xFF3A3A4A, hover ? 0xFF8C2525 : 0xFF23232E);
         // "斜线禁止"图标：两条对角线
         Matrix4f pose = graphics.pose().last().pose();
         float inset = bs * 0.45f;
-        WheelDraw.line(pose, axc - inset, cyc - inset, axc + inset, cyc + inset, 2.4f, 0xFFFFF0F0);
-        WheelDraw.line(pose, axc - inset, cyc + inset, axc + inset, cyc - inset, 2.4f, 0xFFFFF0F0);
-        labelUnderLeft(graphics, "key_conflict_wheel.wheel.blacklist_btn", ChatFormatting.RED,
-                axc, cyc, "key_conflict_wheel.wheel.adjust_btn", bxc);
+        WheelDraw.line(pose, bxc - inset, byc - inset, bxc + inset, byc + inset, 2.4f, 0xFFFFF0F0);
+        WheelDraw.line(pose, bxc - inset, byc + inset, bxc + inset, byc - inset, 2.4f, 0xFFFFF0F0);
+        labelUnder(graphics, "key_conflict_wheel.wheel.blacklist_btn", ChatFormatting.RED, bxc, byc);
+    }
+
+    private void drawStyleButton(GuiGraphics graphics) {
+        boolean hover = inStyleButton(lastMouseX, lastMouseY);
+        fillButton(graphics, stx, byc, hover ? 0xFF5C4A8A : 0xFF3A3A4A, hover ? 0xFF42346B : 0xFF23232E);
+        // "半边圆"图标：主题／配色的通用符号
+        Matrix4f pose = graphics.pose().last().pose();
+        float rr = bs * 0.46f;
+        float twoPi = (float) (Math.PI * 2);
+        WheelDraw.ringSector(pose, stx, byc, rr - 1.5f, rr, 0, twoPi, 0xFFE8E0FF);
+        WheelDraw.ringSector(pose, stx, byc, 0, rr - 1.5f,
+                -(float) Math.PI / 2, (float) Math.PI / 2, 0xFFE8E0FF);
+        labelUnderLeft(graphics, "key_conflict_wheel.wheel.style_btn", ChatFormatting.LIGHT_PURPLE,
+                stx, byc, "key_conflict_wheel.wheel.blacklist_btn", bxc);
     }
 
     private void drawAdjustButton(GuiGraphics graphics) {
         boolean hover = inAdjustButton(lastMouseX, lastMouseY);
-        fillButton(graphics, bxc, byc, hover ? 0xFF2E7FA8 : 0xFF3A3A4A, hover ? 0xFF1E5C7D : 0xFF23232E);
+        fillButton(graphics, axc, cyc, hover ? 0xFF2E7FA8 : 0xFF3A3A4A, hover ? 0xFF1E5C7D : 0xFF23232E);
         // "四向移动"图标
-        drawMoveIcon(graphics, bxc, byc, hover ? 0xFFFFFF : 0xFFD6F0FF, bs * 0.62f);
-        labelUnder(graphics, "key_conflict_wheel.wheel.adjust_btn", ChatFormatting.AQUA, bxc, byc);
+        drawMoveIcon(graphics, axc, cyc, hover ? 0xFFFFFF : 0xFFD6F0FF, bs * 0.62f);
+        labelUnderLeft(graphics, "key_conflict_wheel.wheel.adjust_btn", ChatFormatting.AQUA,
+                axc, cyc, "key_conflict_wheel.wheel.style_btn", stx);
     }
 
     private void drawConfirmButton(GuiGraphics graphics) {
@@ -1273,34 +1337,19 @@ public final class ConflictWheelScreen extends Screen {
         return s.isEmpty() ? "…" : s + "…";
     }
 
-    /** 按"功能名"取稳定色相，做模组色环；hover 提亮 */
-    private int colorOf(int index, float valueMul, boolean outerBand) {
-        String token = bindings.get(index).getName();
-        int h = token.hashCode();
-        h ^= (h >>> 7);
-        float hue = ((h % 360) + 360) % 360 / 360.0f;
-        float sat = outerBand ? 0.55f : 0.42f;
-        float val = Math.min(1.0f, valueMul * (outerBand ? 0.85f : 0.95f));
-        int rgb = hsvToRgb(hue, sat, val);
-        int alpha = isHot(index) ? 0xF8 : 0xD8;
-        return (alpha << 24) | rgb;
+    /**
+     * 当前该用哪套风格。调整模式下玻璃风格强制换成原版配色：
+     * 细线 + 低对比下，扇区外的 ×、右下两个把手、确认/取消按钮都太难看清。
+     */
+    private WheelStyle style() {
+        WheelStyle s = WheelConfig.get().style();
+        if (adjustMode && s == WheelStyle.GLASS) return WheelStyle.VANILLA;
+        return s;
     }
 
-    private static int hsvToRgb(float h, float s, float v) {
-        int i = (int) (h * 6.0f);
-        float f = h * 6.0f - i;
-        float p = v * (1 - s);
-        float q = v * (1 - f * s);
-        float t = v * (1 - (1 - f) * s);
-        float r, g, b;
-        switch (i % 6) {
-            case 0 -> { r = v; g = t; b = p; }
-            case 1 -> { r = q; g = v; b = p; }
-            case 2 -> { r = p; g = v; b = t; }
-            case 3 -> { r = p; g = q; b = v; }
-            case 4 -> { r = t; g = p; b = q; }
-            default -> { r = v; g = p; b = q; }
-        }
-        return ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
+    /** 立体边：沿某条径向边、在某段半径上画一根细线 */
+    private void bevelEdge(Matrix4f pose, float r0, float r1, float angle, int argb) {
+        float cos = (float) Math.cos(angle), sin = (float) Math.sin(angle);
+        WheelDraw.line(pose, cx + cos * r0, cy + sin * r0, cx + cos * r1, cy + sin * r1, 2.0f, argb);
     }
 }

@@ -59,6 +59,8 @@ public final class WheelConfig {
     public double hudDY = 0.0;
     /** 每个物理键上的扇区顺序：KeyRef 序列化 -> 功能名列表。在轮盘上拖扇区重排得到 */
     public Map<String, List<String>> sectorOrder = new LinkedHashMap<>();
+    /** 轮盘界面风格：vanilla（原版 GUI）／glass（淡玻璃 HUD）。缺省原版，旧配置没有这个字段也能直接用 */
+    public String uiStyle = WheelStyle.VANILLA.id;
 
     private static WheelConfig instance = load();
 
@@ -88,6 +90,7 @@ public final class WheelConfig {
                     cfg.offsetY = clampOffset(cfg.offsetY);
                     cfg.hudDX = clampOffset(cfg.hudDX);
                     cfg.hudDY = clampOffset(cfg.hudDY);
+                    cfg.uiStyle = WheelStyle.byId(cfg.uiStyle).id;
                     // 老配置文件升级：铺一次默认拉黑的移动键，之后玩家删掉就不再塞回来
                     if (!cfg.defaultsApplied) {
                         mergeDefaults(cfg);
@@ -119,6 +122,23 @@ public final class WheelConfig {
 
     public boolean isBlacklisted(KeyRef ref) {
         return blacklisted.contains(ref.serialize());
+    }
+
+    /** 当前界面风格（存档里认不出来的值自动回落到原版） */
+    public WheelStyle style() {
+        return WheelStyle.byId(uiStyle);
+    }
+
+    public void setStyle(WheelStyle style) {
+        this.uiStyle = style.id;
+        save();
+    }
+
+    /** 切到下一套风格（K 菜单按钮和快捷键共用） */
+    public WheelStyle cycleStyle() {
+        WheelStyle next = style().next();
+        setStyle(next);
+        return next;
     }
 
     public void blacklist(KeyRef ref) {

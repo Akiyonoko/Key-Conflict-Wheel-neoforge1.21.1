@@ -74,7 +74,14 @@ public final class MasterMenuScreen extends Screen {
             cfg.wheelScale = SCALES[(scaleIndex(cfg) + 1) % SCALES.length];
             cfg.save();
             b.setMessage(scaleLabel(cfg));
-        }).bounds(cx - 110, 46, 220, 20).build());
+        }).bounds(cx - 110, 46, 106, 20).build());
+
+        // 界面风格：和"轮盘大小"同一排左右各占一半
+        addRenderableWidget(Button.builder(styleLabel(cfg), b -> {
+            cfg.cycleStyle();
+            b.setMessage(styleLabel(cfg));
+            WheelSounds.openMenu();
+        }).bounds(cx + 4, 46, 106, 20).build());
 
         addRenderableWidget(Button.builder(soundLabel(cfg), b -> {
             cfg.soundsEnabled = !cfg.soundsEnabled;
@@ -258,5 +265,10 @@ public final class MasterMenuScreen extends Screen {
     private static Component scaleLabel(WheelConfig cfg) {
         return Component.translatable("key_conflict_wheel.menu.scale",
                 Component.translatable(SCALE_KEYS[scaleIndex(cfg)]));
+    }
+
+    private static Component styleLabel(WheelConfig cfg) {
+        return Component.translatable("key_conflict_wheel.menu.style",
+                Component.translatable(cfg.style().langKey()));
     }
 }
