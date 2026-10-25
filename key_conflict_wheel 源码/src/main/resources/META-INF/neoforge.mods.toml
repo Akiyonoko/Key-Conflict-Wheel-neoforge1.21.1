@@ -1,0 +1,24 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="AutoMods"
+logoFile="icon.png"
+description='''快捷键冲突轮盘（NeoForge 1.21.1）：同一个按键被多个模组绑定时，按住它会弹出圆盘——松开按键的那一刻，鼠标停在某扇区的内圈＝短按一次、外圈＝长按（再停在同一扇区结束），中心孔＝取消；轮盘打开期间不会被其他模组的界面顶掉。右下角那排小按钮可以用鼠标右键按住拖到任意位置。轮盘上还能"调整位置"：临时锁定后，用轮盘右下角的"移动轮盘／缩放轮盘"两个小把手挪位置、调大小，按住某个功能拖动能重排扇区顺序，用扇区外的 × 直接取消某个功能的快捷键，点确认保存。另有一键拉黑常用键，按 K 打开总菜单（总开关／轮盘大小／音效／长按连发／布局复位）。内置 en_us / zh_cn / zh_tw / ja_jp 四种语言。
+
+Key Conflict Wheel: when several mods bind the same key, hold it and a radial wheel pops up. Release the key with the cursor on a sector's inner ring = single press, outer ring = hold (release on the same sector again to stop), centre hole = cancel. Other mods' screens cannot steal the wheel. The bottom-right button row can be right-click dragged anywhere. "Move wheel" locks the wheel and adds two little handles at its bottom-right for repositioning and resizing; grab any action and drag it to reorder the sectors, and the × outside each sector clears that action's keybind; block a key in one click; K opens the master menu. Ships en_us / zh_cn / zh_tw / ja_jp.'''
+[[dependencies.${mod_id}]]
+modId="neoforge"
+type="required"
+versionRange="[21.1,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.${mod_id}]]
+modId="minecraft"
+type="required"
+versionRange="${minecraft_version_range}"
+ordering="NONE"
+side="BOTH"
