@@ -59,8 +59,8 @@ public final class WheelConfig {
     public double hudDY = 0.0;
     /** 每个物理键上的扇区顺序：KeyRef 序列化 -> 功能名列表。在轮盘上拖扇区重排得到 */
     public Map<String, List<String>> sectorOrder = new LinkedHashMap<>();
-    /** 轮盘界面风格：vanilla（原版 GUI）／glass（淡玻璃 HUD）。缺省原版，旧配置没有这个字段也能直接用 */
-    public String uiStyle = WheelStyle.VANILLA.id;
+    /** 轮盘界面风格：vanilla（原版 GUI）／glass（淡玻璃 HUD）。缺省玻璃，看不清时玩家可自己切回原版 */
+    public String uiStyle = WheelStyle.GLASS.id;
 
     private static WheelConfig instance = load();
 

@@ -6,8 +6,8 @@ package cn.blockforge.generated.keyconflictwheel.client;
  *   <li>{@link #VANILLA} 原版 MC：灰阶 + 上亮下暗的立体边，最贴近原版按钮；</li>
  *   <li>{@link #GLASS} 半透明：低透明度 + 细线 + 径向压暗，几乎不挡画面。</li>
  * </ul>
- * 半透明在调整模式下会被强制换成原版配色（见 ConflictWheelScreen#style()），
- * 否则扇区外的 × 和右下两个把手在低对比下看不清。
+ * 默认用 {@link #GLASS}；画面太花看不清时玩家可以手动切回 {@link #VANILLA}。
+ * 调整模式不再换风格——右下两个把手和扇区外的 × 用的是独立的硬编码高对比色。
  */
 public enum WheelStyle {
     VANILLA("vanilla",
@@ -109,14 +109,14 @@ public enum WheelStyle {
         this.bevel = bevel;
     }
 
-    /** 存档里的字符串 -> 枚举；认不出来的（手改坏了、删掉的风格）一律回到 VANILLA */
+    /** 存档里的字符串 -> 枚举；认不出来的（手改坏了、删掉的风格）一律回到默认的 GLASS */
     public static WheelStyle byId(String id) {
         if (id != null) {
             for (WheelStyle s : values()) {
                 if (s.id.equalsIgnoreCase(id)) return s;
             }
         }
-        return VANILLA;
+        return GLASS;
     }
 
     public WheelStyle next() {

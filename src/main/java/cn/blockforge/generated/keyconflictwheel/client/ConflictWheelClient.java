@@ -59,6 +59,17 @@ public final class ConflictWheelClient {
     /** 当前物理上"按着"的键（用来判断收尾时是否还需要等待抬起） */
     private static final Set<KeyRef> physicallyDown = new HashSet<>();
 
+    /**
+     * 当前以"覆盖层"方式打开的轮盘；null = 没开。
+     *
+     * 覆盖层不占用 {@code Minecraft.screen}，所以原版不会走 setScreen() 里的
+     * {@code KeyMapping.releaseAll()}，世界、键盘、其它模组的按键全都照常工作。
+     */
+    private static ConflictWheelScreen overlayWheel;
+    /** 上一帧光标位置（GUI 坐标），用来把鼠标移动合成为拖动 */
+    private static int lastCursorX = -1;
+    private static int lastCursorY = -1;
+
     public static boolean isPhysicallyDown(KeyRef ref) {
         return physicallyDown.contains(ref);
     }
@@ -94,6 +105,21 @@ public final class ConflictWheelClient {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onMouseButtonPre(InputEvent.MouseButton.Pre event) {
         if (KeySynth.isSynthesizing()) return;
+        Minecraft mc = Minecraft.getInstance();
+        ConflictWheelScreen overlay = overlayWheel;
+        if (overlay != null) {
+            // 轮盘开着时不抓鼠标、世界照常跑，所以左键右键既不攻击也不挖方块，
+            // 只交给轮盘自己用（选扇区、拖位置、缩放）。
+            int[] cursor = cursorGui(mc);
+            int action = event.getAction();
+            if (action == GLFW.GLFW_PRESS) {
+                overlay.mouseClicked(cursor[0], cursor[1], event.getButton());
+            } else if (action == GLFW.GLFW_RELEASE) {
+                overlay.mouseReleased(cursor[0], cursor[1], event.getButton());
+            }
+            event.setCanceled(true);
+            return;
+        }
         KeyRef ref = new KeyRef(InputConstants.Type.MOUSE, event.getButton());
         trackPhysical(ref, event.getAction());
         if (event.getAction() == GLFW.GLFW_RELEASE) {
@@ -102,6 +128,16 @@ public final class ConflictWheelClient {
             onPhysicalPress(ref, event.getAction());
         }
         KeySynth.enforce();
+    }
+
+    /** 轮盘开着时滚轮归轮盘用（调整模式里改大小），不让原版拿去切快捷栏 */
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public void onMouseScroll(InputEvent.MouseScrollingEvent event) {
+        ConflictWheelScreen overlay = overlayWheel;
+        if (overlay == null) return;
+        int[] cursor = cursorGui(Minecraft.getInstance());
+        overlay.mouseScrolled(cursor[0], cursor[1], event.getScrollDeltaX(), event.getScrollDeltaY());
+        event.setCanceled(true);
     }
 
     /**
@@ -117,12 +153,12 @@ public final class ConflictWheelClient {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public void onScreenOpening(ScreenEvent.Opening event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.screen instanceof ConflictWheelScreen
+        if (overlayWheel != null
                 && event.getNewScreen() != null
                 && !(event.getNewScreen() instanceof ConflictWheelScreen)) {
-            // 轮盘显示期间，别的模组想弹界面一律拦下
-            event.setCanceled(true);
-            return;
+            // 覆盖层模式下别的界面（背包、模组菜单…）照常打开，轮盘先让位收摊，
+            // 否则两层界面会叠在一起、鼠标归属也说不清。
+            closeOverlay(mc);
         }
         if (event.getNewScreen() != null
                 && !(event.getNewScreen() instanceof ConflictWheelScreen)
@@ -137,6 +173,7 @@ public final class ConflictWheelClient {
         Minecraft mc = Minecraft.getInstance();
         EarlyKeyboardGuard.install();
         KeySynth.tick(wheelRef());
+        tickOverlay(mc);
         if (mc.level == null && KeySynth.holdCount() > 0) {
             KeySynth.giveBackAll();
         }
@@ -155,9 +192,31 @@ public final class ConflictWheelClient {
     /** 长按中的功能会显示在画面顶部，提醒玩家别忘了它还按着 */
     @SubscribeEvent
     public void onRenderGui(RenderGuiEvent.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+
+        // 覆盖层轮盘：直接画在最上层（F1 隐藏 HUD 时也要画，玩家正在用它）
+        ConflictWheelScreen wheel = overlayWheel;
+        if (wheel != null) {
+            int[] cursor = cursorGui(mc);
+            int gx = cursor[0];
+            int gy = cursor[1];
+            long window = mc.getWindow().getWindow();
+            boolean leftDown = window != 0L
+                    && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+            boolean rightDown = window != 0L
+                    && GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS;
+            if ((leftDown || rightDown) && lastCursorX >= 0) {
+                int button = leftDown ? GLFW.GLFW_MOUSE_BUTTON_LEFT : GLFW.GLFW_MOUSE_BUTTON_RIGHT;
+                wheel.mouseDragged(gx, gy, button, gx - lastCursorX, gy - lastCursorY);
+            }
+            lastCursorX = gx;
+            lastCursorY = gy;
+            wheel.render(event.getGuiGraphics(), gx, gy,
+                    event.getPartialTick().getGameTimeDeltaPartialTick(false));
+        }
+
         int n = KeySynth.holdCount();
         if (n == 0) return;
-        Minecraft mc = Minecraft.getInstance();
         if (mc.screen != null || mc.options.hideGui) return;
 
         Font font = mc.font;
@@ -189,6 +248,9 @@ public final class ConflictWheelClient {
     public void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         awaitRelease.clear();
         physicallyDown.clear();
+        overlayWheel = null;
+        lastCursorX = -1;
+        lastCursorY = -1;
         KeySynth.giveBackAll();
     }
 
@@ -214,6 +276,17 @@ public final class ConflictWheelClient {
                 onPhysicalPress(ref, action);
             }
             return true;
+        }
+
+        // 覆盖层开着：ESC 关轮盘，其它冲突键吞掉（免得轮盘没关又开一个新的），
+        // 剩下的全部原样交给原版——WASD/空格/Shift/Ctrl 因此照常生效，人能边走边转轮盘。
+        ConflictWheelScreen overlay = overlayWheel;
+        if (overlay != null) {
+            if (key == GLFW.GLFW_KEY_ESCAPE) {
+                if (action == GLFW.GLFW_PRESS) overlay.requestClose();
+                return true;
+            }
+            if (action == GLFW.GLFW_PRESS && isConflictKey(ref)) return true;
         }
 
         // 只有真正的首次按下才会打开轮盘；普通按键继续走原版回调。
@@ -262,9 +335,7 @@ public final class ConflictWheelClient {
         KeySynth.enforce();
 
         if (action == GLFW.GLFW_PRESS) {
-            mc.setScreen(new ConflictWheelScreen(ref, bindings));
-            KeySynth.enforce();  // 开界面时原版会 releaseAll，这里把还在长按的补回去
-            WheelSounds.open();
+            openOverlay(mc, ref, bindings);
         }
     }
 
@@ -276,6 +347,7 @@ public final class ConflictWheelClient {
         if (wheel != null) {
             // 松开这一刻结算：鼠标停在哪个圈层就触发什么
             wheel.fireOnRelease();
+            if (wheel.isFinished()) closeOverlay(mc);
             KeySynth.enforce();
             return;
         }
@@ -361,16 +433,93 @@ public final class ConflictWheelClient {
         mc.player.displayClientMessage(Component.translatable(key, out), true);
     }
 
+    // ---------- 覆盖层 ----------
+
+    /**
+     * 打开轮盘覆盖层。
+     *
+     * 关键点：<b>不</b>调用 {@code Minecraft.setScreen()}。原版在 setScreen 里会做
+     * {@code KeyMapping.releaseAll()}（把所有按键的 isDown 清零）并锁住鼠标，
+     * 这正是"一开轮盘人就走不动"的根因。这里改为自己做界面初始化、自己画在 HUD 上层，
+     * 世界的 tick、键盘回调、其它模组的按键全部不受影响。
+     */
+    private static void openOverlay(Minecraft mc, KeyRef ref, List<KeyMapping> bindings) {
+        if (overlayWheel != null) closeOverlay(mc);
+        ConflictWheelScreen wheel = new ConflictWheelScreen(ref, bindings);
+        wheel.openAsOverlay(mc, mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight());
+        overlayWheel = wheel;
+        lastCursorX = -1;
+        lastCursorY = -1;
+        // 放开鼠标才能用光标选扇区（没抓住时原版也不会转视角）
+        if (mc.mouseHandler != null) mc.mouseHandler.releaseMouse();
+        KeySynth.enforce();
+        WheelSounds.open();
+    }
+
+    /** 收起覆盖层：还原按键、必要时把鼠标抓回去 */
+    private static void closeOverlay(Minecraft mc) {
+        ConflictWheelScreen wheel = overlayWheel;
+        if (wheel == null) return;
+        overlayWheel = null;
+        lastCursorX = -1;
+        lastCursorY = -1;
+        wheel.removed();
+        if (mc.mouseHandler != null && mc.screen == null && mc.level != null
+                && !mc.mouseHandler.isMouseGrabbed()) {
+            mc.mouseHandler.grabMouse();
+        }
+        KeySynth.enforce();
+    }
+
+    /** 覆盖层存活期间每 tick：收尾检查、保持鼠标放开 */
+    private static void tickOverlay(Minecraft mc) {
+        ConflictWheelScreen wheel = overlayWheel;
+        if (wheel == null) return;
+        if (wheel.isFinished()
+                || mc.screen != null
+                || mc.level == null
+                || mc.player == null) {
+            closeOverlay(mc);
+            return;
+        }
+        // 玩家可能在别处把鼠标抓回去了：轮盘要选扇区，必须保持放开
+        if (mc.mouseHandler != null && mc.mouseHandler.isMouseGrabbed()) {
+            mc.mouseHandler.releaseMouse();
+        }
+        // 移动键不在这里清零：覆盖层不经过 Minecraft.screen，原版 KeyboardHandler#keyPress
+        // 的按下分支（flag4 = screen == null）照常执行，WASD/空格/Shift/Ctrl 自然生效。
+        // 视角仍由上面的 releaseMouse() 锁住，鼠标只用来选轮盘扇区。
+    }
+
+    /** 这个键是不是"按下去应该弹轮盘"的冲突键 */
+    private static boolean isConflictKey(KeyRef ref) {
+        WheelConfig config = WheelConfig.get();
+        if (!config.masterEnabled || config.isBlacklisted(ref)) return false;
+        return KeySynth.bindingsOf(ref).size() >= 2;
+    }
+
+    /** 光标位置换算成 GUI 坐标（GLFW 给的是窗口像素，高分屏下要按 GUI 缩放折算） */
+    private static int[] cursorGui(Minecraft mc) {
+        double[] x = new double[1];
+        double[] y = new double[1];
+        GLFW.glfwGetCursorPos(mc.getWindow().getWindow(), x, y);
+        int windowW = Math.max(1, mc.getWindow().getWidth());
+        int windowH = Math.max(1, mc.getWindow().getHeight());
+        double scaleX = (double) mc.getWindow().getGuiScaledWidth() / windowW;
+        double scaleY = (double) mc.getWindow().getGuiScaledHeight() / windowH;
+        return new int[]{(int) (x[0] * scaleX), (int) (y[0] * scaleY)};
+    }
+
     // ---------- 小工具 ----------
 
     private static ConflictWheelScreen wheelOn(KeyRef ref) {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.screen instanceof ConflictWheelScreen w && w.getRef().equals(ref) ? w : null;
+        ConflictWheelScreen wheel = overlayWheel;
+        return wheel != null && wheel.getRef().equals(ref) ? wheel : null;
     }
 
     public static KeyRef wheelRef() {
-        Minecraft mc = Minecraft.getInstance();
-        return mc.screen instanceof ConflictWheelScreen w ? w.getRef() : null;
+        ConflictWheelScreen wheel = overlayWheel;
+        return wheel != null ? wheel.getRef() : null;
     }
 
     public static boolean isHeld(KeyMapping mapping) {

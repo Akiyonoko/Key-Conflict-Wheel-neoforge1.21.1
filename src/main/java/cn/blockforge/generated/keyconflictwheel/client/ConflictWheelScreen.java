@@ -2,6 +2,7 @@ package cn.blockforge.generated.keyconflictwheel.client;
 
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -52,6 +53,8 @@ public final class ConflictWheelScreen extends Screen {
     private int sector = -1;
     private boolean firstSample = true;
     private boolean finished;
+    /** 覆盖层模式：不交给 Minecraft.screen，游戏照常运行，只在本类里自绘 */
+    private boolean overlay;
     private double lastMouseX = -9999, lastMouseY = -9999;
 
     // ---------- 调整位置模式 ----------
@@ -105,6 +108,38 @@ public final class ConflictWheelScreen extends Screen {
         return adjustMode;
     }
 
+    // ---------- 覆盖层模式 ----------
+
+    /**
+     * 以覆盖层方式打开：仍旧按一个界面初始化自己，但<b>不</b>交给 Minecraft.screen。
+     * 这样原版不会调用 KeyMapping.releaseAll()，世界与键盘照常运转，轮盘只是画在最上层。
+     */
+    public void openAsOverlay(Minecraft mc, int guiWidth, int guiHeight) {
+        this.overlay = true;
+        this.init(mc, guiWidth, guiHeight);
+        this.layout();
+    }
+
+    /** 已经结算／被取消，可以关掉了 */
+    public boolean isFinished() {
+        return finished;
+    }
+
+    /** 外部（ESC）要求关闭：调整模式下等于取消调整，否则直接取消轮盘 */
+    public void requestClose() {
+        if (finished) return;
+        if (adjustMode) {
+            cancelAdjust();
+        } else {
+            closeWheel();
+        }
+    }
+
+    /** 只有非覆盖层模式才需要把 this 从 Minecraft.screen 上摘下来 */
+    private void closeScreenRef() {
+        if (!overlay && this.minecraft != null) this.minecraft.setScreen(null);
+    }
+
     @Override
     public boolean isPauseScreen() {
         return false;
@@ -131,6 +166,11 @@ public final class ConflictWheelScreen extends Screen {
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
         super.render(graphics, mouseX, mouseY, partialTick);
+        if (overlay && this.minecraft != null) {
+            // 覆盖层没有原版 setScreen 帮忙初始化尺寸，窗口一改大小就得自己跟上
+            this.width = this.minecraft.getWindow().getGuiScaledWidth();
+            this.height = this.minecraft.getWindow().getGuiScaledHeight();
+        }
         layout();
         sampleMouse(mouseX, mouseY);
 
@@ -437,7 +477,7 @@ public final class ConflictWheelScreen extends Screen {
             finished = true;
             // 中心孔：该键上有长按在跑就把它们结束掉；其余地方松开＝纯取消
             if (zone == ZONE_CENTER) ConflictWheelClient.INSTANCE.stopHoldsOn(ref);
-            this.minecraft.setScreen(null);
+            closeScreenRef();
         }
     }
 
@@ -446,7 +486,7 @@ public final class ConflictWheelScreen extends Screen {
         finished = true;
         KeyMapping target = bindings.get(sector);
         ConflictWheelClient client = ConflictWheelClient.INSTANCE;
-        this.minecraft.setScreen(null);
+        closeScreenRef();
         if (zone == ZONE_SHORT) {
             client.triggerShortPress(ref, target);
         } else {
@@ -529,7 +569,7 @@ public final class ConflictWheelScreen extends Screen {
             ConflictWheelClient.INSTANCE.clearHold(ref);
             WheelSounds.blacklist();
             tell("key_conflict_wheel.msg.blacklisted", ref.display());
-            this.minecraft.setScreen(null);
+            closeScreenRef();
             return true;
         }
         if (button == 0 && inStyleButton(mx, my)) {
@@ -545,12 +585,12 @@ public final class ConflictWheelScreen extends Screen {
         if (button == 0 && inStopButton(mx, my)) {
             finished = true;
             ConflictWheelClient.INSTANCE.stopHoldsOn(ref);
-            this.minecraft.setScreen(null);
+            closeScreenRef();
             return true;
         }
         if (button == 1) {
             finished = true;
-            this.minecraft.setScreen(null);
+            closeScreenRef();
             return true;
         }
         return super.mouseClicked(mx, my, button);
@@ -651,8 +691,8 @@ public final class ConflictWheelScreen extends Screen {
 
     @Override
     public boolean keyPressed(int key, int scanCode, int modifiers) {
-        if (adjustMode && key == GLFW.GLFW_KEY_ESCAPE) {
-            cancelAdjust();
+        if (key == GLFW.GLFW_KEY_ESCAPE) {
+            requestClose();
             return true;
         }
         return super.keyPressed(key, scanCode, modifiers);
@@ -738,7 +778,7 @@ public final class ConflictWheelScreen extends Screen {
         if (ConflictWheelClient.isPhysicallyDown(ref)) {
             ConflictWheelClient.INSTANCE.lockUntilRelease(ref);
         }
-        this.minecraft.setScreen(null);
+        closeScreenRef();
     }
 
     /** 点扇区外的 ×：取消这个功能的快捷键（真的解绑，会在原版按键设置里显示"未绑定"） */
@@ -1338,13 +1378,12 @@ public final class ConflictWheelScreen extends Screen {
     }
 
     /**
-     * 当前该用哪套风格。调整模式下玻璃风格强制换成原版配色：
-     * 细线 + 低对比下，扇区外的 ×、右下两个把手、确认/取消按钮都太难看清。
+     * 当前该用哪套风格。调整模式也保持玩家选的那套：
+     * 右下两个把手、扇区外的 ×、确认/取消按钮用的都是独立的硬编码高对比色，
+     * 不靠配色的深浅来保证可读性，所以没必要在调整时偷偷换皮。
      */
     private WheelStyle style() {
-        WheelStyle s = WheelConfig.get().style();
-        if (adjustMode && s == WheelStyle.GLASS) return WheelStyle.VANILLA;
-        return s;
+        return WheelConfig.get().style();
     }
 
     /** 立体边：沿某条径向边、在某段半径上画一根细线 */
