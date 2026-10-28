@@ -26,14 +26,15 @@ import java.util.Set;
  * 每个键上的扇区顺序、音效开关、长按连发。
  * 存到 config/key_conflict_wheel.json。
  *
- * 默认拉黑 W/A/S/D/空格/鼠标左右键，保证正常跑跳、挖方块不会被轮盘打断；
+ * 默认拉黑 W/A/S/D/空格/鼠标左右键/ESC，保证正常跑跳、挖方块不会被轮盘打断；
+ * ESC 是系统键，被轮盘接管后会挡住开菜单，所以也默认拉黑；
  * 玩家随时可以在总菜单（K）里逐个解除或一键清空，"恢复默认拉黑"能原样装回来。
  */
 public final class WheelConfig {
     private static final Logger LOGGER = LoggerFactory.getLogger("KeyConflictWheel");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    /** 默认拉黑的键：移动、跳跃、破坏/放置方块的鼠标键。与 KeyRef.serialize() 同格式。 */
+    /** 默认拉黑的键：移动、跳跃、破坏/放置方块的鼠标键，以及 ESC。与 KeyRef.serialize() 同格式。 */
     public static final List<String> DEFAULT_BLACKLIST = List.of(
             serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_W),
             serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_A),
@@ -41,7 +42,8 @@ public final class WheelConfig {
             serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_D),
             serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_SPACE),
             serializeRef(InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_LEFT),
-            serializeRef(InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_RIGHT));
+            serializeRef(InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_RIGHT),
+            serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_ESCAPE));
 
     public boolean masterEnabled = true;
     public boolean soundsEnabled = true;
@@ -50,6 +52,8 @@ public final class WheelConfig {
     public Set<String> blacklisted = new LinkedHashSet<>();
     /** 默认黑名单是否已经铺过一次（老存档升级时自动补默认键，铺过之后玩家删掉就不会再塞回来） */
     public boolean defaultsApplied = false;
+    /** ESC 是否已经补进默认拉黑（后加的一条规则，单独记一个标记，老配置也能补一次） */
+    public boolean escDefaultApplied = false;
     public double wheelScale = 1.0;
     /** 轮盘中心相对屏幕中心的偏移（GUI 缩放像素），在轮盘上的"调整位置"模式里拖动得到 */
     public double offsetX = 0.0;
@@ -97,6 +101,12 @@ public final class WheelConfig {
                         cfg.defaultsApplied = true;
                         cfg.save();
                     }
+                    // ESC 默认拉黑：单独一条，老配置也补一次（ESC 被轮盘接管会挡住开菜单）
+                    if (!cfg.escDefaultApplied) {
+                        cfg.blacklisted.add(serializeRef(InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_ESCAPE));
+                        cfg.escDefaultApplied = true;
+                        cfg.save();
+                    }
                     return cfg;
                 }
             }
@@ -106,6 +116,7 @@ public final class WheelConfig {
         WheelConfig fresh = new WheelConfig();
         mergeDefaults(fresh);
         fresh.defaultsApplied = true;
+        fresh.escDefaultApplied = true;
         fresh.save();
         return fresh;
     }
