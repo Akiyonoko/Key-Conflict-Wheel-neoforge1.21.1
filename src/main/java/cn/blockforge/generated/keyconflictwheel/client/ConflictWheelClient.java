@@ -16,10 +16,13 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderGuiEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+import net.neoforged.neoforge.client.settings.KeyModifier;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -58,6 +61,8 @@ public final class ConflictWheelClient {
     private final Set<KeyRef> awaitRelease = new HashSet<>();
     /** 当前物理上"按着"的键（用来判断收尾时是否还需要等待抬起） */
     private static final Set<KeyRef> physicallyDown = new HashSet<>();
+    /** 按下那一刻记住这个键属于哪个修饰键组（松开时 Alt 可能已经放开，不能靠实时状态） */
+    private static final Map<KeyRef, KeyModifier> pressMods = new HashMap<>();
 
     /**
      * 当前以"覆盖层"方式打开的轮盘；null = 没开。
@@ -72,6 +77,20 @@ public final class ConflictWheelClient {
 
     public static boolean isPhysicallyDown(KeyRef ref) {
         return physicallyDown.contains(ref);
+    }
+
+    /**
+     * 记住这个键这次按在哪个修饰键组：按下时用事件里的修饰位，
+     * 松开时（Alt 往往已经放开了）沿用按下时记下的那个，别拿实时状态猜。
+     */
+    private static KeyModifier rememberMods(KeyRef ref, KeyModifier fromEvent, int action) {
+        if (action == GLFW.GLFW_RELEASE) {
+            KeyModifier kept = pressMods.get(ref);
+            return kept != null ? kept : fromEvent;
+        }
+        if (fromEvent == KeyModifier.NONE) pressMods.remove(ref);
+        else pressMods.put(ref, fromEvent);
+        return fromEvent;
     }
 
     private static void trackPhysical(KeyRef ref, int action) {
@@ -90,11 +109,12 @@ public final class ConflictWheelClient {
     public void onKeyInput(InputEvent.Key event) {
         if (KeySynth.isSynthesizing()) return;
         KeyRef ref = new KeyRef(InputConstants.Type.KEYSYM, event.getKey());
+        KeyModifier mods = rememberMods(ref, KeyMods.groupOf(ref, KeyMods.fromGlfwBits(event.getModifiers())), event.getAction());
         trackPhysical(ref, event.getAction());
         if (event.getAction() == GLFW.GLFW_RELEASE) {
             onPhysicalRelease(ref);
         } else {
-            onPhysicalPress(ref, event.getAction());
+            onPhysicalPress(ref, event.getAction(), mods);
         }
     }
 
@@ -121,11 +141,12 @@ public final class ConflictWheelClient {
             return;
         }
         KeyRef ref = new KeyRef(InputConstants.Type.MOUSE, event.getButton());
+        KeyModifier mods = rememberMods(ref, KeyMods.groupOf(ref, KeyMods.fromGlfwBits(event.getModifiers())), event.getAction());
         trackPhysical(ref, event.getAction());
         if (event.getAction() == GLFW.GLFW_RELEASE) {
             onPhysicalRelease(ref);
         } else {
-            onPhysicalPress(ref, event.getAction());
+            onPhysicalPress(ref, event.getAction(), mods);
         }
         KeySynth.enforce();
     }
@@ -224,8 +245,8 @@ public final class ConflictWheelClient {
         MutableComponent keys = null;
         for (KeyMapping m : KeySynth.heldBindings()) {
             names = names == null
-                    ? Component.empty().append(m.getDisplayName())
-                    : names.append(Component.literal("、").append(m.getDisplayName()));
+                    ? Component.empty().append(KeyMods.prefix(m.getKeyModifier())).append(m.getDisplayName())
+                    : names.append(Component.literal("、").append(KeyMods.prefix(m.getKeyModifier())).append(m.getDisplayName()));
             KeyRef ref = KeySynth.refOf(m);
             if (ref != null) {
                 keys = keys == null
@@ -248,6 +269,7 @@ public final class ConflictWheelClient {
     public void onLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         awaitRelease.clear();
         physicallyDown.clear();
+        pressMods.clear();
         overlayWheel = null;
         lastCursorX = -1;
         lastCursorY = -1;
@@ -264,6 +286,7 @@ public final class ConflictWheelClient {
         if (KeySynth.isSynthesizing() || key < 0) return false;
 
         KeyRef ref = new KeyRef(InputConstants.Type.KEYSYM, key);
+        KeyModifier mods = rememberMods(ref, KeyMods.groupOf(ref, KeyMods.fromGlfwBits(modifiers)), action);
         ConflictWheelScreen wheel = wheelOn(ref);
         boolean taken = KeySynth.isTakenOver(ref) || awaitRelease.contains(ref);
 
@@ -273,7 +296,7 @@ public final class ConflictWheelClient {
             if (action == GLFW.GLFW_RELEASE) {
                 onPhysicalRelease(ref);
             } else {
-                onPhysicalPress(ref, action);
+                onPhysicalPress(ref, action, mods);
             }
             return true;
         }
@@ -286,7 +309,7 @@ public final class ConflictWheelClient {
                 if (action == GLFW.GLFW_PRESS) overlay.requestClose();
                 return true;
             }
-            if (action == GLFW.GLFW_PRESS && isConflictKey(ref)) return true;
+            if (action == GLFW.GLFW_PRESS && isConflictKey(ref, mods)) return true;
         }
 
         // 只有真正的首次按下才会打开轮盘；普通按键继续走原版回调。
@@ -295,14 +318,20 @@ public final class ConflictWheelClient {
         if (mc.screen != null || mc.level == null || mc.player == null) return false;
         WheelConfig config = WheelConfig.get();
         if (!config.masterEnabled || config.isBlacklisted(ref)) return false;
-        if (KeySynth.bindingsOf(ref).size() < 2) return false;
+        // 带修饰键的按键一律不接管：Alt/Ctrl/Shift + 键 本来就是玩家用来避开冲突的写法，
+        // 轮盘再插手只会把这次组合吞掉，让它对双方都不生效。这类绑定全部交还原版处理。
+        // 修饰键自己不当轮盘键：Alt/Ctrl/Shift 是用来和别的键组合的，
+        // 一旦被轮盘接管，Alt+X 这种组合就再也按不出来（而组合键比轮盘更常用）。
+        if (KeyMods.isModifierKey(ref)) return false;
+        if (mods != null && mods != KeyModifier.NONE) return false;
+        if (KeySynth.bindingsOf(ref, mods).size() < 2) return false;
 
         trackPhysical(ref, action);
-        onPhysicalPress(ref, action);
+        onPhysicalPress(ref, action, mods);
         return true;
     }
 
-    private void onPhysicalPress(KeyRef ref, int action) {
+    private void onPhysicalPress(KeyRef ref, int action, KeyModifier mods) {
         Minecraft mc = Minecraft.getInstance();
 
         // 轮盘已开：重复按键与键盘连发一律吞掉，只在松开时结算
@@ -325,17 +354,20 @@ public final class ConflictWheelClient {
         WheelConfig config = WheelConfig.get();
         if (!config.masterEnabled || config.isBlacklisted(ref)) return;
 
-        List<KeyMapping> bindings = KeySynth.bindingsOf(ref);
+        if (KeyMods.isModifierKey(ref)) return;
+        if (mods != null && mods != KeyModifier.NONE) return;   // 组合键不归轮盘管
+        List<KeyMapping> bindings = KeySynth.bindingsOf(ref, mods);
         if (bindings.size() < 2) return;   // 只有一个功能用这个键：原样放行
         WheelConfig.get().applyOrder(ref, bindings);
 
         // 先接管（临时解绑），这样本次事件继续往下派发时，别的模组 matches() 都会失败
-        KeySynth.takeOver(ref, bindings);
+        // 接管按物理键来：这个键上所有修饰键组的绑定都要藏起来，这次按键才真的对别的模组不存在
+        KeySynth.takeOver(ref, KeySynth.bindingsOf(ref));
         KeyMappingScanner.zero(bindings);
         KeySynth.enforce();
 
         if (action == GLFW.GLFW_PRESS) {
-            openOverlay(mc, ref, bindings);
+            openOverlay(mc, ref, bindings, mods);
         }
     }
 
@@ -443,9 +475,9 @@ public final class ConflictWheelClient {
      * 这正是"一开轮盘人就走不动"的根因。这里改为自己做界面初始化、自己画在 HUD 上层，
      * 世界的 tick、键盘回调、其它模组的按键全部不受影响。
      */
-    private static void openOverlay(Minecraft mc, KeyRef ref, List<KeyMapping> bindings) {
+    private static void openOverlay(Minecraft mc, KeyRef ref, List<KeyMapping> bindings, KeyModifier mods) {
         if (overlayWheel != null) closeOverlay(mc);
-        ConflictWheelScreen wheel = new ConflictWheelScreen(ref, bindings);
+        ConflictWheelScreen wheel = new ConflictWheelScreen(ref, bindings, mods);
         wheel.openAsOverlay(mc, mc.getWindow().getGuiScaledWidth(), mc.getWindow().getGuiScaledHeight());
         overlayWheel = wheel;
         lastCursorX = -1;
@@ -492,10 +524,14 @@ public final class ConflictWheelClient {
     }
 
     /** 这个键是不是"按下去应该弹轮盘"的冲突键 */
-    private static boolean isConflictKey(KeyRef ref) {
+    private static boolean isConflictKey(KeyRef ref, KeyModifier mods) {
         WheelConfig config = WheelConfig.get();
         if (!config.masterEnabled || config.isBlacklisted(ref)) return false;
-        return KeySynth.bindingsOf(ref).size() >= 2;
+        // 修饰键自己不当轮盘键：Alt/Ctrl/Shift 是用来和别的键组合的，
+        // 一旦被轮盘接管，Alt+X 这种组合就再也按不出来（而组合键比轮盘更常用）。
+        if (KeyMods.isModifierKey(ref)) return false;
+        if (mods != null && mods != KeyModifier.NONE) return false;
+        return KeySynth.bindingsOf(ref, mods).size() >= 2;
     }
 
     /** 光标位置换算成 GUI 坐标（GLFW 给的是窗口像素，高分屏下要按 GUI 缩放折算） */

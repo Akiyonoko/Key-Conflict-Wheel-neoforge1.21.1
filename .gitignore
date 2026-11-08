@@ -1,0 +1,8 @@
+# Gradle / MDG
+.gradle/
+build/classes/
+build/generated/
+build/moddev/
+build/resources/
+build/tmp/
+*.log

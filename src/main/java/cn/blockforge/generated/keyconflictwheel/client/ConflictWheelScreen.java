@@ -7,6 +7,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
+import net.neoforged.neoforge.client.settings.KeyModifier;
 import org.joml.Matrix4f;
 import org.lwjgl.glfw.GLFW;
 
@@ -46,6 +47,8 @@ public final class ConflictWheelScreen extends Screen {
     private static final int ZONE_LONG = 2;
 
     private final KeyRef ref;
+    /** 这次轮盘开在哪个修饰键组上（NONE＝普通单键）；扇区标签据此加 Alt+/Ctrl+ 前缀 */
+    private final KeyModifier mods;
     private final List<KeyMapping> bindings;
     private int count;
 
@@ -92,9 +95,10 @@ public final class ConflictWheelScreen extends Screen {
     private float axc, cyc, mxc, stx, rCross, crossSize;
     private float mvx, mvy, scx, scy, hb;
 
-    public ConflictWheelScreen(KeyRef ref, List<KeyMapping> bindings) {
+    public ConflictWheelScreen(KeyRef ref, List<KeyMapping> bindings, KeyModifier mods) {
         super(Component.translatable("key_conflict_wheel.wheel.title"));
         this.ref = ref;
+        this.mods = mods == null ? KeyModifier.NONE : mods;
         this.bindings = new ArrayList<>(bindings);
         this.count = this.bindings.size();
     }
@@ -996,7 +1000,7 @@ public final class ConflictWheelScreen extends Screen {
             int lx = (int) (cx + Math.cos(mid) * labelR);
             int ly = (int) (cy + Math.sin(mid) * labelR);
             String prefix = ConflictWheelClient.isHeld(bindings.get(i)) ? "◆" : "";
-            String text = elide(prefix + bindings.get(i).getDisplayName().getString(), maxW);
+            String text = elide(KeyMods.prefixText(mods) + prefix + bindings.get(i).getDisplayName().getString(), maxW);
             graphics.drawCenteredString(this.font, text, lx, ly - this.font.lineHeight / 2,
                     isHot(i) ? st.textHot : st.text);
         }

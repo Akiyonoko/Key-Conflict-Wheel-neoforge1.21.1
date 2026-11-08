@@ -61,6 +61,18 @@ First public release.
 - Translucent falls back to high contrast while Adjust Mode is open, so the small handles stay readable
 ```
 
+### 1.1.3 更新说明模板（本次发布用）
+
+```
+## 1.1.3
+
+1. Some mods' hotkeys did nothing when you picked them from the wheel. The wheel now hands the key back
+   to vanilla's own key handling, so most of them should work again.
+2. Alt, Ctrl and Shift are no longer taken over — otherwise no combination key would work at all. That is
+   how the game works underneath, and there is no way around it. So if a hotkey involves Esc, Ctrl, Shift,
+   Alt, or one of the mouse buttons, the wheel can't help with it.
+```
+
 ## 5. 项目介绍正文（Description，切到 Markdown 编辑模式整段粘贴）
 
 见本文件末尾"DESCRIPTION.md"分隔线之后的内容；那里是最终版正文。
@@ -106,6 +118,7 @@ The boundary between inner and outer ring is drawn clearly, so you never have to
 
 - **Priority protection** — other mods' GUIs can't steal or dismiss the wheel.
 - **Wheel-mod friendly** — early keyboard handling was rewritten so mods with their own wheels or quick-cast keys (e.g. *Iron's Spells 'n Spellbooks*) no longer double-trigger or flash-quit the wheel.
+- **Works with mods that handle their own keys** — some mods run their hotkey logic inside vanilla's key handler instead of just polling a keybind (*Punchy! Moves* is one). Picking those actions from the wheel now really triggers them, because the wheel hands the key back to vanilla instead of faking it.
 - **Blacklist, pre-filled** — `W A S D`, `Space` and mouse left/right are blocked on first launch, so running and mining never pop the wheel. Unblock a single key any time in the K menu (or clear the whole list); one click restores the defaults. On the wheel itself, one click blacklists the key you are looking at.
 - **Sound feedback** — subtle hover / confirm / blacklist sounds, can be turned off.
 
@@ -146,7 +159,8 @@ Press **K** in game for the master menu:
 
 - Minecraft **1.21.1** with **NeoForge** (21.1.x)
 - **Client-side only** — not required on servers
-- Tested against wheel/ability mods such as Iron's Spells 'n Spellbooks
+- Tested against wheel/ability mods such as Iron's Spells 'n Spellbooks, Punchy! and Punchy! Moves
+- Combination keys (`Alt+X`, `Ctrl+X`, …) are left entirely to vanilla — the wheel never takes them over
 
 ## Languages
 
@@ -157,7 +171,7 @@ English / 简体中文 / 繁體中文 / 日本語 — the UI follows your game l
 同一条快捷键被多个模组占用时，**按住它**会弹出圆盘：鼠标停在扇区**内圈松开＝短按一次**，停在**外圈松开＝长按**（再按一次同一扇区结束长按），停在**中心＝取消**。
 支持一键拉黑常用键，且出厂就把 W/A/S/D、空格、鼠标左右键默认拉黑——走路挖方块绝不会弹轮盘；想恢复哪个键，在 K 总菜单的拉黑列表里逐个解除或一键清空，也可以一键恢复默认。调整位置模式（拖动/缩放轮盘、拖拽重排扇区、× 取消单个快捷键）、按 K 打开总菜单（总开关／大小／界面风格／音效／长按连发／复位）。
 **两套界面风格**：原版 MC、半透明，K 菜单里一键切换，也可以在「控制」里给"切换轮盘界面风格"绑一个键。
-纯客户端模组，已针对铁魔法等自带轮盘的模组做底层键盘兼容修复。
+纯客户端模组，已针对铁魔法、Punchy! Moves 等自带轮盘或自带按键处理的模组做底层兼容修复；`Alt+X` 这类组合键一律交还原版，轮盘不接管修饰键。
 
 ## License
 

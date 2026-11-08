@@ -2,10 +2,14 @@ package cn.blockforge.generated.keyconflictwheel.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import net.neoforged.bus.api.ICancellableEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
+import net.neoforged.neoforge.client.settings.KeyModifier;
 import net.neoforged.neoforge.common.NeoForge;
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -16,25 +20,28 @@ import java.util.Map;
 /**
  * 按键接管与合成触发（轮盘的"手"）。
  *
- * 为什么要这一层：原版 KeyboardHandler 是先更新所有 KeyMapping 的状态、
- * 之后才发出 InputEvent.Key，而这个事件不可取消。所以别的模组能直接看到
- * 原始按键事件里的键码——光把状态"归零"拦不住靠事件判断长按的模组；
- * 反过来，只改 KeyMapping 的 down/clickCount 也骗不到它们（它们不听状态，听事件）。
+ * 接管：把冲突键上所有模组绑定临时解绑（setKey(UNKNOWN)），于是别的模组在监听器里的
+ * 键码判定统统失败＝这次按键对它们不存在；同时每个 tick 把状态清零，连"轮询 isDown()"的
+ * 模组也看不见这次按键。轮盘收起、长按结束时原样还回去。
  *
- * 解决办法两件事一起做：
- * 1) 接管：把冲突键上所有模组绑定临时解绑（setKey(UNKNOWN)），
- *    于是别的模组在自己监听器里的 matches(键码) 判定统统失败＝这次按键对它们不存在；
- *    同时每个 tick 把它们的状态清零，连"轮询 isDown()"型的模组也看不见这次按键。
- * 2) 合成：要触发哪个功能，就只把它一个绑回那个键，由我们自己发出
- *    InputEvent.Key / MouseButton 的按下与松开事件，并把 down/clickCount 置好——
- *    听事件的模组收到一次真按下（长按立刻开始），轮询状态的模组看到持续按住，
- *    两种写法都能立刻生效，不需要玩家再自己按一下。
+ * 合成：要触发哪个功能，就只把它一个绑回那个键，然后<b>交给原版按键处理器</b>
+ * （{@link net.minecraft.client.KeyboardHandler#keyPress}）走一遍，最后恢复"全部解绑"。
+ * 为什么必须走原版：
+ * - 有的模组把逻辑直接 mixin 在 KeyboardHandler#keyPress 上（Punchy! Moves 就是这样，
+ *   而且它处理完还会 cancel 掉原版后续处理）。我们只改 KeyMapping 字段、手发
+ *   InputEvent.Key，是绕开了那道门，它们的 mixin 永远不跑，表现就是
+ *   "轮盘提示已短按，目标模组毫无反应"。
+ * - 走原版还顺带把 scancode 和修饰键（Alt/Ctrl/Shift）带对，组合键绑定才认得出来。
  *
- * 因为"接管期间全部解绑、只在发事件的瞬间把目标绑回去"，同一个键上
- * 可以按住好几个模组的功能而互不串味（这也解决了"两个长按只触发一个"）。
- * 长按结束、短按结束、取消轮盘后一切原样恢复。
+ * 兜底：原版调用失败（或当前有界面挡着）时退回手发 InputEvent.Key；
+ * 原版处理被别的模组 mixin 掐掉时（KeyMapping.click 没跑），补一次 clickCount，
+ * 保证靠 consumeClick() 判断按下的模组仍然收得到。
  */
 public final class KeySynth {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("KeyConflictWheel");
+    /** 打 -Dkcw.debug=true 时打印每次合成的前后状态，排查"点了没反应"用 */
+    private static final boolean DEBUG = Boolean.getBoolean("kcw.debug");
 
     /** 短按后多少 tick 自动松手 */
     private static final int SHORT_PRESS_TICKS = 2;
@@ -89,6 +96,19 @@ public final class KeySynth {
         List<KeyMapping> out = new ArrayList<>(list);
         for (KeyMapping m : KeyMappingScanner.mappingsFor(ref)) {
             if (!out.contains(m)) out.add(m);
+        }
+        return out;
+    }
+
+    /**
+     * 只取「按住这一组修饰键时才成立」的绑定：X 与 Alt+X 是两个独立的组。
+     * 轮盘弹不弹、扇区里列什么，都按这个组来算。
+     */
+    public static List<KeyMapping> bindingsOf(KeyRef ref, KeyModifier mods) {
+        KeyModifier want = mods == null ? KeyModifier.NONE : mods;
+        List<KeyMapping> out = new ArrayList<>();
+        for (KeyMapping m : bindingsOf(ref)) {
+            if (m.getKeyModifier() == want) out.add(m);
         }
         return out;
     }
@@ -179,6 +199,7 @@ public final class KeySynth {
      * 永久取消某个功能的快捷键（轮盘调整模式里点扇区外的 ×）。
      * 先结束它的长按/短按（该发的"松开"事件要发出去），再把它从接管记录里摘掉——
      * 这样收尾时不会把键再绑回去，也就是"真的解绑"，不是临时藏起来。
+     * 修饰键要一起清掉：只清主键的话，这个绑定还挂着 Alt，等于没解干净。
      */
     public static void unbindForever(KeyMapping mapping) {
         boolean released = false;
@@ -195,7 +216,7 @@ public final class KeySynth {
 
         mapping.setDown(false);
         mapping.consumeClick();
-        mapping.setKey(InputConstants.UNKNOWN);
+        mapping.setKeyModifierAndCode(KeyModifier.NONE, InputConstants.UNKNOWN);
         rebuildLookups();
     }
 
@@ -241,6 +262,11 @@ public final class KeySynth {
         return holds.get(mapping);
     }
 
+    /** 这个绑定是不是被我们藏起来了（诊断用） */
+    public static boolean isHidden(KeyMapping mapping) {
+        return hiddenKey.containsKey(mapping);
+    }
+
     // ---------- 每 tick 推进 ----------
 
     /**
@@ -257,6 +283,7 @@ public final class KeySynth {
             }
             if (due != null) {
                 for (KeyMapping m : due) {
+                    if (DEBUG) LOGGER.info("[KCW] 松手前 clickCount={} 目标={}（0＝对方已经吃掉这次点击，1＝没人读）", KeyMappingScanner.clicks(m), m.getName());
                     PendingShort ps = pendingShorts.remove(m);
                     if (ps != null) releaseState(m, ps.ref);
                 }
@@ -270,7 +297,7 @@ public final class KeySynth {
                     if (n >= REPEAT_INTERVAL_TICKS) {
                         holdTicks.put(e.getKey(), 0);
                         e.getKey().setDown(true);
-                        KeyMappingScanner.addClick(e.getKey(), 1);
+                        // 真实按住的连发也不会加 clickCount，这里保持一致，交给原版处理
                         fireEvent(e.getKey(), e.getValue(), GLFW.GLFW_REPEAT);
                     }
                 }
@@ -310,9 +337,13 @@ public final class KeySynth {
 
     // ---------- 小工具 ----------
 
+    /**
+     * 按下状态：只置 isDown。
+     * clickCount 交给 fireEvent 统一处理——先看原版有没有点上一次，没点上才补，
+     * 免得原版点一次、我们再点一次，变成按两下。
+     */
     private static void pressState(KeyMapping mapping) {
         mapping.setDown(true);
-        KeyMappingScanner.addClick(mapping, 1);
     }
 
     private static void releaseState(KeyMapping mapping, KeyRef ref) {
@@ -326,6 +357,7 @@ public final class KeySynth {
         InputConstants.Key current = mapping.getKey();
         if (isUnknown(current)) return;
         hiddenKey.put(mapping, current);
+        // 只改主键，不动 keyModifier：还原时才不会把 Alt/Ctrl 丢掉
         mapping.setKey(InputConstants.UNKNOWN);
         mapping.consumeClick();
         mapping.setDown(false);
@@ -351,30 +383,80 @@ public final class KeySynth {
         return key == null || key.getValue() == InputConstants.UNKNOWN.getValue();
     }
 
-    /** 只把目标一个绑回原键、发一次事件、然后按原状处理——别的模组只会看到这个功能 */
+    /**
+     * 只把目标一个绑回原键、交给原版处理一遍、然后恢复原状——别的模组只会看到这个功能。
+     *
+     * modifiers 取的是「目标绑定自己声明的修饰键」，不是「玩家此刻按着什么」：
+     * 轮盘结算时玩家可能已经把 Alt 松开了，但对这个功能来说它仍然是 Alt+X。
+     */
     private static void fireEvent(KeyMapping mapping, KeyRef ref, int action) {
         InputConstants.Key saved = hiddenKey.remove(mapping);
         boolean wasHidden = saved != null;
-        if (wasHidden) mapping.setKey(saved);
-        else saved = mapping.getKey();
+        if (wasHidden) {
+            mapping.setKey(saved);
+        } else {
+            saved = mapping.getKey();
+        }
+        // 键刚换回来，KeyMapping 内部的 MAP 还是旧的（这个绑定还挂在 UNKNOWN 下）。
+        // 不重建的话，靠 KeyMapping.click(key) 走查找表的模组根本找不到它。
+        rebuildLookups();
 
+        KeyModifier modifier = mapping.getKeyModifier();
+        int mods = KeyMods.glfwBits(modifier);
+        int scancode = 0;
+        if (ref.type == InputConstants.Type.KEYSYM) {
+            try {
+                scancode = GLFW.glfwGetKeyScancode(ref.code);
+            } catch (Throwable ignored) {
+            }
+        }
+
+        Minecraft mc = Minecraft.getInstance();
         synthesizing = true;
         try {
-            if (ref.type == InputConstants.Type.MOUSE) {
-                InputEvent.MouseButton.Pre pre = new InputEvent.MouseButton.Pre(ref.code, action, 0);
-                NeoForge.EVENT_BUS.post(pre);
-                if (!((ICancellableEvent) pre).isCanceled()) {
-                    NeoForge.EVENT_BUS.post(new InputEvent.MouseButton.Post(ref.code, action, 0));
+            boolean viaVanilla = false;
+            if (ref.type == InputConstants.Type.KEYSYM
+                    && mc != null && mc.keyboardHandler != null && mc.screen == null) {
+                long window = mc.getWindow() == null ? 0L : mc.getWindow().getWindow();
+                if (window != 0L) {
+                    try {
+                        // 关键一步：走原版入口。把逻辑挂在 KeyboardHandler#keyPress 上的模组
+                        // （Punchy! Moves 就是，而且它会 cancel 掉原版后续处理）只有经过这里才响应。
+                        mc.keyboardHandler.keyPress(window, ref.code, scancode, action, mods);
+                        viaVanilla = true;
+                    } catch (Throwable t) {
+                        LOGGER.error("[KeyConflictWheel] 合成按键走原版处理失败，退回手动发事件", t);
+                    }
                 }
-            } else {
-                NeoForge.EVENT_BUS.post(new InputEvent.Key(ref.code, 0, action, 0));
+            }
+            if (!viaVanilla) {
+                if (ref.type == InputConstants.Type.MOUSE) {
+                    InputEvent.MouseButton.Pre pre = new InputEvent.MouseButton.Pre(ref.code, action, mods);
+                    NeoForge.EVENT_BUS.post(pre);
+                    if (!((ICancellableEvent) pre).isCanceled()) {
+                        NeoForge.EVENT_BUS.post(new InputEvent.MouseButton.Post(ref.code, action, mods));
+                    }
+                } else {
+                    NeoForge.EVENT_BUS.post(new InputEvent.Key(ref.code, scancode, action, mods));
+                }
+            }
+            // 原版那一步可能被别的模组的 mixin 掐掉（Punchy! Moves 就 cancel 了），
+            // 那样 KeyMapping.click() 不会跑，靠 consumeClick() 的模组就收不到，这里补一次。
+            if (action == GLFW.GLFW_PRESS && KeyMappingScanner.clicks(mapping) == 0) {
+                KeyMappingScanner.addClick(mapping, 1);
+            }
+            if (DEBUG) {
+                LOGGER.info("[KCW] 合成 action={} key={} scancode={} mods={} 目标={} clickCount={} 字段={} 走原版={}",
+                        action, ref.code, scancode, mods, mapping.getName(),
+                        KeyMappingScanner.clicks(mapping), KeyMappingScanner.clickCountFieldName(), viaVanilla);
             }
         } finally {
             synthesizing = false;
-            if (wasHidden && !isUnknown(saved)) {
+            if (wasHidden && saved != null && !isUnknown(saved)) {
                 // 恢复"接管中＝全部解绑"这个不变量
                 mapping.setKey(InputConstants.UNKNOWN);
                 hiddenKey.put(mapping, saved);
+                rebuildLookups();
             }
         }
     }
